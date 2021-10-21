@@ -18,11 +18,15 @@ package controllers
 
 import (
 	"context"
+	"fmt"
+	"github.com/go-logr/logr"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+
+	appsv1 "k8s.io/api/apps/v1"
 
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/log"
 
 	webappv1 "saha.com/mycrd/api/v1"
 )
@@ -30,6 +34,7 @@ import (
 // NeymarReconciler reconciles a Neymar object
 type NeymarReconciler struct {
 	client.Client
+	Log    logr.Logger
 	Scheme *runtime.Scheme
 }
 
@@ -47,16 +52,63 @@ type NeymarReconciler struct {
 // For more details, check Reconcile and its Result here:
 // - https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.8.3/pkg/reconcile
 func (r *NeymarReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	_ = log.FromContext(ctx)
+	// _ = log.FromContext(ctx)
+	log := r.Log.WithValues("neymar", req.NamespacedName)
 
 	// your logic here
+
+	// 1. Load the Neymar by name
+	var jr webappv1.Neymar
+	if err := r.Get(ctx, req.NamespacedName, &jr); err != nil {
+		log.Error(err, "unable to fetch neymar")
+		// we'll ignore not-found errors, since they can't be fixed by an immediate
+		// requeue (we'll need to wait for a new notification), and we can get them
+		// on deleted requests.
+		return ctrl.Result{}, client.IgnoreNotFound(err)
+	}
+
+	// 2. List all active deployments, and update the status
+	var childDeps appsv1.DeploymentList
+	if err := r.List(ctx, &childDeps, client.InNamespace(req.Namespace), client.MatchingFields{depOwnerKey: req.Name}); err != nil {
+		log.Error(err, "unable to list child deployments")
+		return ctrl.Result{}, err
+	}
+	fmt.Println("childDeps = ", childDeps)
+	// your logic here
+	fmt.Println("Reconcilier function has been called")
 
 	return ctrl.Result{}, nil
 }
 
+var (
+	depOwnerKey = ".metadata.controller"
+	apiGVStr    = webappv1.GroupVersion.String()
+)
+
 // SetupWithManager sets up the controller with the Manager.
 func (r *NeymarReconciler) SetupWithManager(mgr ctrl.Manager) error {
+
+	if err := mgr.GetFieldIndexer().IndexField(context.Background(), &appsv1.Deployment{}, depOwnerKey, func(rawObj client.Object) []string {
+		// grab the deploy object, extract the owner...
+		deploy := rawObj.(*appsv1.Deployment)
+		owner := metav1.GetControllerOf(deploy)
+		if owner == nil {
+			return nil
+		}
+		// ...make sure it's a Nicedeploy...
+		if owner.APIVersion != apiGVStr || owner.Kind != "Neymar" {
+			return nil
+		}
+
+		// ...and if so, return it
+		return []string{owner.Name}
+	}); err != nil {
+		return err
+	}
+
+	fmt.Println("SetupWithManager successful. ")
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&webappv1.Neymar{}).
+		Owns(&appsv1.Deployment{}).
 		Complete(r)
 }

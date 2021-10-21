@@ -25,13 +25,13 @@ import (
 
 // NeymarSpec defines the desired state of Neymar
 type NeymarSpec struct {
-	DeploymentName string `json:"deploymentName"`
-	DeploymentImage string `json:"deploymentImage"`
-	Replicas       *int32 `json:"replicas"`
-	ServiceName 	string `json:"serviceName"`
-	ServicePort 	int32 `json:"servicePort"`
-	ServiceType     string `json:"serviceType"`
-	ServiceTargetPort int32 `json:"serviceTargetPort"`
+	DeploymentName    string `json:"deploymentName"`
+	DeploymentImage   string `json:"deploymentImage"`
+	Replicas          *int32 `json:"replicas"`
+	ServiceName       string `json:"serviceName"`
+	ServicePort       int32  `json:"servicePort"`
+	ServiceType       string `json:"serviceType"`
+	ServiceTargetPort int32  `json:"serviceTargetPort"`
 }
 
 // NeymarStatus defines the observed state of Neymar
