@@ -1,0 +1,24 @@
+# permissions for end users to edit neymars.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: neymar-editor-role
+rules:
+- apiGroups:
+  - webapp.saha.com
+  resources:
+  - neymars
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - webapp.saha.com
+  resources:
+  - neymars/status
+  verbs:
+  - get

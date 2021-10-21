@@ -1,0 +1,7 @@
+apiVersion: webapp.saha.com/v1
+kind: Neymar
+metadata:
+  name: neymar-sample
+spec:
+  # Add fields here
+  foo: bar

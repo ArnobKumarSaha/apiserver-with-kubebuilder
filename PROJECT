@@ -1,0 +1,16 @@
+domain: saha.com
+layout:
+- go.kubebuilder.io/v3
+projectName: myserver
+repo: saha.com/mycrd
+resources:
+- api:
+    crdVersion: v1
+    namespaced: true
+  controller: true
+  domain: saha.com
+  group: webapp
+  kind: Neymar
+  path: saha.com/mycrd/api/v1
+  version: v1
+version: "3"
