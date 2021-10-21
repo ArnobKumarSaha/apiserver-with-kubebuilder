@@ -20,6 +20,7 @@ import (
 	"context"
 	"fmt"
 	"github.com/go-logr/logr"
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	appsv1 "k8s.io/api/apps/v1"
@@ -52,6 +53,7 @@ type NeymarReconciler struct {
 // For more details, check Reconcile and its Result here:
 // - https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.8.3/pkg/reconcile
 func (r *NeymarReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
+	fmt.Println("req.name = ", req.Name, req.Namespace)
 	// _ = log.FromContext(ctx)
 	log := r.Log.WithValues("neymar", req.NamespacedName)
 
@@ -73,7 +75,38 @@ func (r *NeymarReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 		log.Error(err, "unable to list child deployments")
 		return ctrl.Result{}, err
 	}
-	fmt.Println("childDeps = ", childDeps)
+
+	// if no childDeployment found , create it on the cluster
+	if len(childDeps.Items) == 0 {
+		deploy := newDeployment(&jr)
+		if err := r.Create(ctx, deploy); err != nil {
+			log.Error(err, "unable to create deployment for Neymar", "Deploy", deploy)
+			return ctrl.Result{}, err
+		} else {
+			fmt.Println("created childDeps = ", len(childDeps.Items))
+		}
+	}
+
+	// Same for service
+	var childSvcs corev1.ServiceList
+	if err := r.List(ctx, &childSvcs, client.InNamespace(req.Namespace)); err != nil {
+		log.Error(err, "unable to list child services")
+		// ERROR	controllers.Neymar	unable to list child services
+		// {"neymar": "default/neymar-sample", "error": "Index with name field:.metadata.controller does not exist"}
+		return ctrl.Result{}, err
+	}
+
+
+	// if no childService found or the default 'kubernetes' service found, create one on the cluster
+	if len(childSvcs.Items) == 0 || (len(childSvcs.Items) == 1 && childSvcs.Items[0].Name == "kubernetes") {
+		svcObj := newService(&jr)
+		if err := r.Create(ctx, svcObj); err != nil {
+			log.Error(err, "unable to create service for Neymar", "service", svcObj)
+			return ctrl.Result{}, err
+		} else {
+			fmt.Println("created childSvc = ", len(childSvcs.Items))
+		}
+	}
 	// your logic here
 	fmt.Println("Reconcilier function has been called")
 
@@ -82,6 +115,7 @@ func (r *NeymarReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 
 var (
 	depOwnerKey = ".metadata.controller"
+	svcOwnerKey = ".metadata.controller"
 	apiGVStr    = webappv1.GroupVersion.String()
 )
 
@@ -110,5 +144,6 @@ func (r *NeymarReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&webappv1.Neymar{}).
 		Owns(&appsv1.Deployment{}).
+		Owns(&corev1.Service{}).
 		Complete(r)
 }
