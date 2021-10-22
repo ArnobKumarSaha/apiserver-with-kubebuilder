@@ -20,10 +20,9 @@ import (
 	"context"
 	"fmt"
 	"github.com/go-logr/logr"
+	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-
-	appsv1 "k8s.io/api/apps/v1"
 
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -57,9 +56,7 @@ func (r *NeymarReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 	// _ = log.FromContext(ctx)
 	log := r.Log.WithValues("neymar", req.NamespacedName)
 
-	// your logic here
-
-	// 1. Load the Neymar by name
+	// Load the Neymar by name
 	var jr webappv1.Neymar
 	if err := r.Get(ctx, req.NamespacedName, &jr); err != nil {
 		log.Error(err, "unable to fetch neymar")
@@ -69,15 +66,16 @@ func (r *NeymarReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 
-	// 2. List all active deployments, and update the status
+	// List all active deployments, and update the status
 	var childDeps appsv1.DeploymentList
 	if err := r.List(ctx, &childDeps, client.InNamespace(req.Namespace), client.MatchingFields{depOwnerKey: req.Name}); err != nil {
 		log.Error(err, "unable to list child deployments")
 		return ctrl.Result{}, err
 	}
+	fmt.Println("After printing depl : ", len(childDeps.Items))
 
-	// if no childDeployment found , create it on the cluster
-	if len(childDeps.Items) == 0 {
+	// if no childDeployment found , or found deployments are not owned by Neymar, create one on the cluster
+	if len(childDeps.Items) == 0 || !findIfAnyOfTheDepsOwnedByNeymar(&childDeps) {
 		deploy := newDeployment(&jr)
 		if err := r.Create(ctx, deploy); err != nil {
 			log.Error(err, "unable to create deployment for Neymar", "Deploy", deploy)
@@ -89,16 +87,17 @@ func (r *NeymarReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 
 	// Same for service
 	var childSvcs corev1.ServiceList
-	if err := r.List(ctx, &childSvcs, client.InNamespace(req.Namespace)); err != nil {
+	if err := r.List(ctx, &childSvcs, client.InNamespace(req.Namespace), client.MatchingFields{svcOwnerKey: req.Name}); err != nil {
 		log.Error(err, "unable to list child services")
-		// ERROR	controllers.Neymar	unable to list child services
 		// {"neymar": "default/neymar-sample", "error": "Index with name field:.metadata.controller does not exist"}
 		return ctrl.Result{}, err
 	}
 
-
 	// if no childService found or the default 'kubernetes' service found, create one on the cluster
-	if len(childSvcs.Items) == 0 || (len(childSvcs.Items) == 1 && childSvcs.Items[0].Name == "kubernetes") {
+	//if len(childSvcs.Items) == 0 || (len(childSvcs.Items) == 1 && childSvcs.Items[0].Name == "kubernetes") {
+	fmt.Println("After printing svc : ", len(childSvcs.Items))
+
+	if len(childSvcs.Items) == 0 || !findIfAnyOfTheSVCsOwnedByNeymar(&childSvcs) {
 		svcObj := newService(&jr)
 		if err := r.Create(ctx, svcObj); err != nil {
 			log.Error(err, "unable to create service for Neymar", "service", svcObj)
@@ -140,10 +139,52 @@ func (r *NeymarReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		return err
 	}
 
+	if err := mgr.GetFieldIndexer().IndexField(context.Background(), &corev1.Service{}, svcOwnerKey, func(rawObj client.Object) []string {
+		// grab the service object, extract the owner...
+		svc := rawObj.(*corev1.Service)
+		owner := metav1.GetControllerOf(svc)
+		if owner == nil {
+			return nil
+		}
+		if owner.APIVersion != apiGVStr || owner.Kind != "Neymar" {
+			return nil
+		}
+		// ...and if so, return it
+		return []string{owner.Name}
+	}); err != nil {
+		return err
+	}
+
 	fmt.Println("SetupWithManager successful. ")
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&webappv1.Neymar{}).
 		Owns(&appsv1.Deployment{}).
 		Owns(&corev1.Service{}).
 		Complete(r)
+}
+
+func findIfAnyOfTheDepsOwnedByNeymar(deps *appsv1.DeploymentList) bool {
+	ret := false
+	for i := 0; i < len(deps.Items); i += 1 {
+		ownRefs := deps.Items[0].GetOwnerReferences()
+		for j := 0; j < len(ownRefs); j += 1 {
+			if (ownRefs[j].APIVersion == apiGVStr) && (ownRefs[j].Kind == "Neymar") {
+				return true
+			}
+		}
+	}
+	return ret
+}
+
+func findIfAnyOfTheSVCsOwnedByNeymar(svcs *corev1.ServiceList) bool {
+	ret := false
+	for i := 0; i < len(svcs.Items); i += 1 {
+		ownRefs := svcs.Items[0].GetOwnerReferences()
+		for j := 0; j < len(ownRefs); j += 1 {
+			if (ownRefs[j].APIVersion == apiGVStr) && (ownRefs[j].Kind == "Neymar") {
+				return true
+			}
+		}
+	}
+	return ret
 }
